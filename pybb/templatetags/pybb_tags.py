@@ -1,29 +1,32 @@
 # -*- coding: utf-8 -*-
+
 import math
-import re
-from datetime import datetime, timedelta
-import time as time
-
-try:
-    import pytils
-
-    pytils_enabled = True
-except ImportError:
-    pytils_enabled = False
+from string import strip
+import time
 
 from django import template
-from django.core.urlresolvers import reverse
 from django.utils.safestring import mark_safe
-from django.template import TextNode
 from django.utils.encoding import smart_unicode
 from django.utils.html import escape
 from django.utils.translation import ugettext as _
 from django.utils import dateformat
-from django.utils.translation import ungettext
 
-from pybb.models import Topic, TopicReadTracker, ForumReadTracker
+try:
+    from django.utils.timezone import timedelta
+    from django.utils.timezone import now as tznow
+except ImportError:
+    import datetime
+    from datetime import timedelta
+    tznow = datetime.datetime.now
 
-from django.conf import settings
+try:
+    import pytils
+    pytils_enabled = True
+except ImportError:
+    pytils_enabled = False
+
+from pybb.models import TopicReadTracker, ForumReadTracker, PollAnswerUser
+from pybb.permissions import perms
 from pybb import defaults
 
 
@@ -49,8 +52,8 @@ class PybbTimeNode(template.Node):
     def render(self, context):
         context_time = self.time.resolve(context)
 
-        delta = datetime.now() - context_time
-        today = datetime.now().replace(hour=0, minute=0, second=0)
+        delta = tznow() - context_time
+        today = tznow().replace(hour=0, minute=0, second=0)
         yesterday = today - timedelta(days=1)
         tomorrow = today + timedelta(days=1)
 
@@ -76,7 +79,7 @@ class PybbTimeNode(template.Node):
                 tz1 = time.altzone
             else:
                 tz1 = time.timezone
-            tz = tz1 + context['user'].pybb_profile.time_zone * 60 * 60
+            tz = tz1 + context['user'].get_profile().time_zone * 60 * 60
             context_time = context_time + timedelta(seconds=tz)
         if today < context_time < tomorrow:
             return _('today, %s') % context_time.strftime('%H:%M')
@@ -104,21 +107,14 @@ def pybb_topic_moderated_by(topic, user):
     Check if user is moderator of topic's forum.
     """
 
-    return user.is_superuser or (user in topic.forum.moderators.all())
+    return perms.may_moderate_topic(user, topic)
 
 @register.filter
 def pybb_editable_by(post, user):
     """
     Check if the post could be edited by the user.
     """
-
-    if user.is_superuser:
-        return True
-    if post.user == user:
-        return True
-    if user in post.topic.forum.moderators.all():
-        return True
-    return False
+    return perms.may_edit_post(user, post)    
 
 
 @register.filter
@@ -128,28 +124,48 @@ def pybb_posted_by(post, user):
     """
     return post.user == user
 
+
+@register.filter
+def pybb_is_topic_unread(topic, user):
+    if not user.is_authenticated():
+        return False
+
+    if not topic.updated:
+        return True
+
+    unread = not ForumReadTracker.objects.filter(
+        forum=topic.forum,
+        user=user.id,
+        time_stamp__gte=topic.updated).exists()
+    unread &= not TopicReadTracker.objects.filter(
+        topic=topic,
+        user=user.id,
+        time_stamp__gte=topic.updated).exists()
+    return unread
+
+
 @register.filter
 def pybb_topic_unread(topics, user):
     """
     Mark all topics in queryset/list with .unread for target user
     """
     topic_list = list(topics)
+
     if user.is_authenticated():
         for topic in topic_list:
             topic.unread = True
-        try:
-            forum_mark = ForumReadTracker.objects.get(user=user, forum=topic_list[0].forum)
-        except:
-            forum_mark = None
-        qs = TopicReadTracker.objects.filter(
-                user=user,
-                topic__in=topic_list
-                ).select_related('topic')
-        if forum_mark:
-            qs = qs.filter(topic__updated__gt=forum_mark.time_stamp)
+
+        forums_ids = [f.forum_id for f in topic_list]
+        forum_marks = dict([(m.forum_id, m.time_stamp)
+                            for m
+                            in ForumReadTracker.objects.filter(user=user, forum__in=forums_ids)])
+        if len(forum_marks):
             for topic in topic_list:
-                if topic.updated and (topic.updated <= forum_mark.time_stamp):
+                topic_updated = topic.updated or topic.created
+                if topic.forum.id in forum_marks and topic_updated <= forum_marks[topic.forum.id]:
                     topic.unread = False
+
+        qs = TopicReadTracker.objects.filter(user=user, topic__in=topic_list).select_related('topic')
         topic_marks = list(qs)
         topic_dict = dict(((topic.id, topic) for topic in topic_list))
         for mark in topic_marks:
@@ -179,9 +195,20 @@ def pybb_forum_unread(forums, user):
                 forum_dict[mark.forum.id].unread = False
     return forum_list
 
+
 @register.filter
 def pybb_topic_inline_pagination(topic):
     page_count = int(math.ceil(topic.post_count / float(defaults.PYBB_TOPIC_PAGE_SIZE)))
     if page_count <= 5:
         return range(1, page_count+1)
     return range(1, 5) + ['...', page_count]
+
+
+@register.filter
+def pybb_topic_poll_not_voted(topic, user):
+    return not PollAnswerUser.objects.filter(poll_answer__topic=topic, user=user).exists()
+
+
+@register.filter
+def endswith(str, substr):
+    return str.endswith(substr)

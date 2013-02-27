@@ -3,10 +3,11 @@
 
 {% block title %}{% trans "Editing the post" %}{% endblock title %}
 
-{% block head %}
+{% block extra_script %}
     {{ block.super }}
-    {% include "pybb/markitup.html" %}
-{% endblock head %}
+    {% include "pybb/_markitup.html" %}
+    <script type="text/javascript" src="{{ STATIC_URL }}pybb/js/jquery.formset.min.js"></script>
+{% endblock %}
 
 {% block content %}
     <h1>{% trans "Editing the post" %}</h1>

@@ -29,6 +29,14 @@ PYBB_DEFAULT_AUTOSUBSCRIBE
 
 Users will be automatically subscribed to topic when create post in it.
 
+PYBB_USE_DJANGO_MAILER
+......................
+
+When True, then for sending email pybbm will use django-mailer app. With this app you can
+manage emails from your site in queue. But in this case you have to periodically actually
+send emails from queue. For more information see `app home page <https://github.com/pinax/django-mailer/>`_.
+(default False)
+
 Emoticons
 ---------
 
@@ -106,27 +114,12 @@ Will be used if user doesn't upload avatar
 Style
 -----
 
-You can use buildin templates with custom basic template and custom images for
-`save`, `new topic` and `submit` buttons.
+You can use builtin templates with custom basic template.
 
 PYBB_TEMPLATE
 .............
 
-Buildin templates will inherit this template (default "base.html")
-
-PYBB_BUTTONS
-............
-
-Dict with images for `save`, `new topic` and `submit` buttons.
-Empty by default.
-
-Example of usage::
-
-    PYBB_BUTTONS = {
-        'new_topic': 'images/new_topic.png',
-        'submit': 'images/submit.png',
-        'save': 'images/save.png'
-    }
+Builtin templates will inherit this template (default "base.html")
 
 
 Markup engines
@@ -168,20 +161,49 @@ default is::
         'markdown': lambda text, username="": '>'+text.replace('\n','\n>').replace('\r','\n>') + '\n'
     }
 
-BODY_CLEANER
-............
+Post cleaning/validation
+------------------------
+
+PYBB_BODY_CLEANERS
+..................
+
+List of 'cleaner' functions for body post to automatically remove undesirable content from posts.
+Cleaners are user-aware, so you can disable them for some types of users.
+
+Each function in list should accept `auth.User` instance as first argument and `string` instance as second, returned value will be sended to next function on list or saved and rendered as post body.
+
+for example this is enabled by default `rstrip_str` cleaner::
+
+    def rstrip_str(user, str):
+        if user.is_staff:
+            return str
+        return '\n'.join([s.rstrip() for s in str.splitlines()])
+
+default is::
+
+    [
+        pybb.util.rstrip_str, #Replace strings with spaces (tabs, etc..) only with newlines
+        pybb.util.filter_blanks, # Replace more than 3 blank lines with only 1 blank line
+    ]
+
+PYBB_BODY_VALIDATOR
+...................
 
 Extra form validation for body of post.
 
 Called as::
 
-    BODY_CLEANER(user, body)
+    PYBB_BODY_VALIDATOR(user, body)
 
 at `clean_body` method of `PostForm` Here you can do various checks based on user stats. E.g. allow moderators to post links and don't allow others. By raising::
 
     forms.ValidationError('Here Error Message')
 
 You can show user what is going wrong during validation.
+
+You can use it for example for time limit between posts, preventing URLs, ...
+
+default is None
 
 Anonymous/guest posting
 -----------------------
@@ -223,10 +245,26 @@ PYBB_ATTACHMENT_UPLOAD_TO
 
 Directory in your media path for uploaded attacments. `pybb_upload/attachments` by default.
 
-PYBB_ENABLE_SELF_CSS
-....................
+Polls
+-----
 
-Include `{{ STATIC_URL }}pybb.css` file for every pybbm page, this is useful when you have special css
-only for forum pages (and which should not be included in other pages).
+PYBB_POLL_MAX_ANSWERS
+.....................
 
-Be aware than this file in current project tree are legacy and can provide strange markup with current templates.
+Max count of answers, that user can add to topic. 10 by default.
+
+Permissions
+-----------
+
+PYBB_AUTO_USER_PERMISSIONS
+..........................
+
+Automatically adds add post and add topic permissions to users on user.save().
+
+PYBB_PERMISSION_HANDLER
+.......................
+
+If you need custom permissions (for example, private forums based on application-specific 
+user groups), you can set `PYBB_PERMISSION_HANDLER` to a class which inherits from 
+`pybb.permissions.DefaultPermissionHandler`, and override any of the `filter_*` and 
+`may_*` method. For details, look at the source of `pybb.permissions.DefaultPermissionHandler`.

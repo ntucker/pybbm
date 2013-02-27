@@ -1,9 +1,12 @@
 # -*- coding: utf-8
+
 from django.utils.translation import ugettext_lazy as _
 from django.contrib import admin
 from django.core.urlresolvers import reverse
+from django.conf import settings
 
-from pybb.models import Category, Forum, Topic, Post, Profile, Attachment, TopicReadTracker, ForumReadTracker
+from pybb.models import Category, Forum, Topic, Post, Profile, Attachment, PollAnswer
+
 
 class ForumInlineAdmin(admin.TabularInline):
     model = Forum
@@ -21,7 +24,7 @@ class CategoryAdmin(admin.ModelAdmin):
 
 
 class ForumAdmin(admin.ModelAdmin):
-    list_display = ['name', 'category', 'hidden', 'position', 'topic_count']
+    list_display = ['name', 'category', 'hidden', 'position', 'topic_count', ]
     list_per_page = 20
     raw_id_fields = ['moderators']
     ordering = ['-category']
@@ -29,7 +32,7 @@ class ForumAdmin(admin.ModelAdmin):
     list_editable = ['position', 'hidden']
     fieldsets = (
         (None, {
-                'fields': ('category', 'name', 'hidden', 'position')
+                'fields': ('category', 'name', 'hidden', 'position', )
                 }
          ),
         (_('Additional options'), {
@@ -40,8 +43,14 @@ class ForumAdmin(admin.ModelAdmin):
         )
 
 
+class PollAnswerAdmin(admin.TabularInline):
+    model = PollAnswer
+    fields = ['text', ]
+    extra = 0
+
+
 class TopicAdmin(admin.ModelAdmin):
-    list_display = ['name', 'forum', 'created', 'head', 'post_count']
+    list_display = ['name', 'forum', 'created', 'head', 'post_count', 'poll_type',]
     list_per_page = 20
     raw_id_fields = ['user', 'subscribers']
     ordering = ['-created']
@@ -49,7 +58,7 @@ class TopicAdmin(admin.ModelAdmin):
     search_fields = ['name']
     fieldsets = (
         (None, {
-                'fields': ('forum', 'name', 'user', ('created', 'updated'))
+                'fields': ('forum', 'name', 'user', ('created', 'updated'), 'poll_type',)
                 }
          ),
         (_('Additional options'), {
@@ -58,6 +67,7 @@ class TopicAdmin(admin.ModelAdmin):
                 }
          ),
         )
+    inlines = [PollAnswerAdmin, ]
 
 class TopicReadTrackerAdmin(admin.ModelAdmin):
     list_display = ['topic', 'user', 'time_stamp']
@@ -92,14 +102,13 @@ class PostAdmin(admin.ModelAdmin):
 
 
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'time_zone', 'language']
+    list_display = ['user', 'time_zone', 'language', 'post_count']
     list_per_page = 20
-    raw_id_fields = ['user']
     ordering = ['-user']
     search_fields = ['user__username', 'user__first_name', 'user__last_name']
     fieldsets = (
         (None, {
-                'fields': ('user', 'time_zone', 'language')
+                'fields': ('time_zone', 'language')
                 }
          ),
         (_('Additional options'), {
@@ -128,8 +137,10 @@ admin.site.register(Category, CategoryAdmin)
 admin.site.register(Forum, ForumAdmin)
 admin.site.register(Topic, TopicAdmin)
 admin.site.register(Post, PostAdmin)
-admin.site.register(Profile, ProfileAdmin)
 admin.site.register(Attachment, AttachmentAdmin)
+
+if settings.AUTH_PROFILE_MODULE == 'pybb.Profile':
+    admin.site.register(Profile, ProfileAdmin)
 
 # This can be used to debug read/unread trackers
 

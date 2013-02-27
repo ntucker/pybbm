@@ -1,3 +1,28 @@
+0.11.0
+    * Polls (by Geyser)
+0.10.0
+    * Bootstrap 2 (by nigma and Geyser) (WARNING!! - BACKWARD INCOMPATIBLE TEMPLATES)
+0.9.0
+    * Button in templates restyling (by nigma)
+    * Code cleanup (by nigma)
+0.8.2
+    * Docs touchup
+    * Fix links to project
+    * Fix read/unread tracking (by lpetre)
+0.8.1
+    * Support for django 1.4 timezones
+0.8.0
+    * Django 1.4 support (by djw)
+    * Fix misspellings (by djw)
+0.7.0
+    * Code cleanup
+    * Add post cleaners
+    * Rename BODY_CLEANER settings to PYBB_BODY_VALIDATOR
+0.6.3
+    * Changed pybbTimeNode to use get_profile # (thanks Shon)
+    * Disable admin for 'pybb.Profile' if different AUTH_PROFILE_MODULE is set
+    * Disable editing of 'user' field in Profile admin
+    * French translation (thanks Eric)
 0.6.1
     * Russian translation updated
 0.6.0

@@ -1,20 +1,18 @@
-from django.conf.urls.defaults import *
+# -*- coding: utf-8 -*-
+
+from django.conf.urls import *
 
 from pybb.feeds import LastPosts, LastTopics
-from views import IndexView, CategoryView, ForumView, TopicView, AddPostView, EditPostView,\
-    UserView, PostView, ProfileEditView, DeletePostView, StickTopicView, UnstickTopicView,\
-    CloseTopicView, OpenTopicView, ModeratePost
+from pybb.views import IndexView, CategoryView, ForumView, TopicView,\
+    AddPostView, EditPostView, UserView, PostView, ProfileEditView,\
+    DeletePostView, StickTopicView, UnstickTopicView, CloseTopicView,\
+    OpenTopicView, ModeratePost, TopicPollVoteView, LatestTopicsView
 
-
-feeds = {
-    'posts': LastPosts,
-    'topics': LastTopics
-}
 
 urlpatterns = patterns('',
                        # Syndication feeds
-                       url('^feeds/(?P<url>.*)/$', 'django.contrib.syndication.views.feed',
-                           {'feed_dict': feeds}, name='feed'),
+                       url('^feeds/posts/$', LastPosts(), name='feed_posts'),
+                       url('^feeds/topics/$', LastTopics(), name='feed_topics'),
                        )
 
 urlpatterns += patterns('pybb.views',
@@ -36,6 +34,8 @@ urlpatterns += patterns('pybb.views',
                         url('^topic/(?P<pk>\d+)/unstick/$', UnstickTopicView.as_view(), name='unstick_topic'),
                         url('^topic/(?P<pk>\d+)/close/$', CloseTopicView.as_view(), name='close_topic'),
                         url('^topic/(?P<pk>\d+)/open/$', OpenTopicView.as_view(), name='open_topic'),
+                        url('^topic/(?P<pk>\d+)/poll_vote/$', TopicPollVoteView.as_view(), name='topic_poll_vote'),
+                        url('^topic/latest/$', LatestTopicsView.as_view(), name='topic_latest'),
 
                         # Add topic/post
                         url('^forum/(?P<forum_id>\d+)/topic/add/$', AddPostView.as_view(), name='add_topic'),

@@ -1,36 +1,40 @@
-from datetime import datetime
+# -*- coding: utf-8 -*-
+
 import os.path
 import uuid
+
+from django.db import models
+from django.contrib.auth.models import User
+from django.core.urlresolvers import reverse
+from django.utils.html import strip_tags
+from django.utils.translation import ugettext_lazy as _
+from django.conf import settings
+
+from annoying.fields import AutoOneToOneField
+from sorl.thumbnail import ImageField
+from pybb.util import unescape
 
 try:
     from hashlib import sha1
 except ImportError:
     from sha import sha as sha1
 
-from django.db import models
-from django.contrib.auth.models import User, Group
-from django.core.urlresolvers import reverse
-from django.utils.html import strip_tags
-from django.utils.translation import ugettext_lazy as _
+try:
+    from django.utils.timezone import now as tznow
+except ImportError:
+    import datetime
+    tznow = datetime.datetime.now
 
-from annoying.fields import AutoOneToOneField
-from sorl.thumbnail import ImageField
-from pybb.util import unescape
+try:
+    from south.modelsinspector import add_introspection_rules
+    
+    add_introspection_rules([], ["^annoying\.fields\.JSONField"])
+    add_introspection_rules([], ["^annoying\.fields\.AutoOneToOneField"])
+except ImportError:
+    pass
 
-import defaults
+from pybb import defaults
 
-from django.conf import settings
-
-# None is safe as default since django settings always have LANGUAGES, MEDIA_ROOT and SECRET_KEY variable set
-LANGUAGES = settings.LANGUAGES
-MEDIA_ROOT = settings.MEDIA_ROOT
-SECRET_KEY = settings.SECRET_KEY
-MEDIA_URL = settings.MEDIA_URL
-
-from south.modelsinspector import add_introspection_rules
-
-add_introspection_rules([], ["^annoying\.fields\.JSONField"])
-add_introspection_rules([], ["^annoying\.fields\.AutoOneToOneField"])
 
 TZ_CHOICES = [(float(x[0]), x[1]) for x in (
 (-12, '-12'), (-11, '-11'), (-10, '-10'), (-9.5, '-09.5'), (-9, '-09'),
@@ -61,7 +65,6 @@ class Category(models.Model):
     hidden = models.BooleanField(_('Hidden'), blank=False, null=False, default=False,
         help_text = _('If checked, this category will be visible only for staff')
     )
-    groups = models.ManyToManyField(Group, blank=True, null=True, verbose_name=_('Groups'), help_text=_('Only users from these groups can see this category'))
 
     class Meta(object):
         ordering = ['position']
@@ -70,15 +73,6 @@ class Category(models.Model):
 
     def __unicode__(self):
         return self.name
-
-    def has_access(self, user):
-        if self.groups.exists():
-            if user.is_authenticated(): 
-                    if not self.groups.filter(user__pk=user.pk).exists():
-                        return False
-            else:
-                return False
-        return True
 
     def forum_count(self):
         return self.forums.all().count()
@@ -118,12 +112,15 @@ class Forum(models.Model):
         return self.name
 
     def update_counters(self):
-        self.post_count = Post.objects.filter(topic__forum=self).count()
+        posts = Post.objects.filter(topic__forum_id=self.id)
+        self.post_count = posts.count()
         self.topic_count = Topic.objects.filter(forum=self).count()
-        last_post = self.get_last_post()
-        if last_post:
-            self.last_post = last_post
-            self.updated = self.last_post.updated or self.last_post.created
+        try:
+            self.last_post = last_post = posts.order_by('-created')[0]
+            self.updated = last_post.updated or last_post.created
+        except IndexError:
+            pass
+
         self.save()
 
     def get_absolute_url(self):
@@ -135,7 +132,7 @@ class Forum(models.Model):
 
     def get_last_post(self):
         try:
-            return self.posts.order_by('-created').select_related()[0]
+            return self.posts.order_by('-created')[0]
         except IndexError:
             return None
 
@@ -147,6 +144,16 @@ class Forum(models.Model):
 
 
 class Topic(models.Model):
+    POLL_TYPE_NONE = 0
+    POLL_TYPE_SINGLE = 1
+    POLL_TYPE_MULTIPLE = 2
+
+    POLL_TYPE_CHOICES = (
+        (POLL_TYPE_NONE, _('None')),
+        (POLL_TYPE_SINGLE, _('Single answer')),
+        (POLL_TYPE_MULTIPLE, _('Multiple answers')),
+    )
+
     forum = models.ForeignKey(Forum, related_name='topics', verbose_name=_('Forum'))
     name = models.CharField(_('Subject'), max_length=255)
     created = models.DateTimeField(_('Created'), null=True)
@@ -155,15 +162,13 @@ class Topic(models.Model):
     views = models.IntegerField(_('Views count'), blank=True, default=0)
     sticky = models.BooleanField(_('Sticky'), blank=True, default=False)
     closed = models.BooleanField(_('Closed'), blank=True, default=False)
-    subscribers = models.ManyToManyField(
-        User,
-        related_name='subscriptions',
-        verbose_name=_('Subscribers'),
-        blank=True
-    )
+    subscribers = models.ManyToManyField(User, related_name='subscriptions', verbose_name=_('Subscribers'),
+        blank=True)
     post_count = models.IntegerField(_('Post count'), blank=True, default=0)
     readed_by = models.ManyToManyField(User, through='TopicReadTracker', related_name='readed_topics')
     on_moderation = models.BooleanField(_('On moderation'), default=False)
+    poll_type = models.IntegerField(_('Poll type'), choices=POLL_TYPE_CHOICES, default=POLL_TYPE_NONE)
+    poll_question = models.TextField(_('Poll question'), blank=True, null=True)
     last_post = models.ForeignKey('Post', related_name='last_topic_post', blank=True, null=True)
 
     class Meta(object):
@@ -186,22 +191,27 @@ class Topic(models.Model):
         return self._head[0]
 
     def get_last_post(self):
-        return self.posts.order_by('-created').select_related()[0]
+        return self.posts.order_by('-created').select_related('user')[0]
 
     def get_absolute_url(self):
         return reverse('pybb:topic', kwargs={'pk': self.id})
 
     def save(self, *args, **kwargs):
         if self.id is None:
-            self.created = datetime.now()
+            self.created = tznow()
         super(Topic, self).save(*args, **kwargs)
+
+    def delete(self, using=None):
+        super(Topic, self).delete(using)
+        self.forum.update_counters()
 
     def update_counters(self):
         self.post_count = self.posts.count()
         last_post = self.get_last_post()
         if last_post:
             self.last_post = last_post
-            self.updated = self.last_post.updated or self.last_post.created
+        last_post = Post.objects.filter(topic_id=self.id).order_by('-created')[0]
+        self.updated = last_post.updated or last_post.created
         self.save()
 
     def get_parents(self):
@@ -209,6 +219,12 @@ class Topic(models.Model):
         Used in templates for breadcrumb building
         """
         return self.forum.category, self.forum
+
+    def poll_votes(self):
+        if self.poll_type != self.POLL_TYPE_NONE:
+            return PollAnswerUser.objects.filter(poll_answer__topic=self).count()
+        else:
+            return None
 
 
 class RenderableItem(models.Model):
@@ -233,7 +249,7 @@ class RenderableItem(models.Model):
 class Post(RenderableItem):
     topic = models.ForeignKey(Topic, related_name='posts', verbose_name=_('Topic'))
     user = models.ForeignKey(User, related_name='posts', verbose_name=_('User'))
-    created = models.DateTimeField(_('Created'), blank=True)
+    created = models.DateTimeField(_('Created'), blank=True, db_index=True)
     updated = models.DateTimeField(_('Updated'), blank=True, null=True)
     user_ip = models.IPAddressField(_('User IP'), blank=True, default='0.0.0.0')
     on_moderation = models.BooleanField(_('On moderation'), default=False)
@@ -251,21 +267,21 @@ class Post(RenderableItem):
     __unicode__ = summary
 
     def save(self, *args, **kwargs):
-        now = datetime.now()
+        created_at = tznow()
         if self.created is None:
-            self.created = now
+            self.created = created_at
         self.render()
 
         new = self.pk is None
 
+        update_counters = kwargs.pop('update_counters', True)
+
         super(Post, self).save(*args, **kwargs)
 
-        if new:
-            self.topic.updated = now
-            self.topic.forum.updated = now
         # If post is topic head and moderated, moderate topic too
         if self.topic.head == self and self.on_moderation == False and self.topic.on_moderation == True:
             self.topic.on_moderation = False
+        if update_counters:
         self.topic.update_counters()
         self.topic.forum.update_counters()
 
@@ -375,25 +391,63 @@ class TopicReadTracker(models.Model):
     """
     Save per user topic read tracking
     """
-    class Meta(object):
-        verbose_name = _('Topic read tracker')
-        verbose_name_plural = _('Topic read trackers')
-
     user = models.ForeignKey(User, blank=False, null=False)
     topic = models.ForeignKey(Topic, blank=True, null=True)
     time_stamp = models.DateTimeField(auto_now=True)
+
+    class Meta(object):
+        verbose_name = _('Topic read tracker')
+        verbose_name_plural = _('Topic read trackers')
+        unique_together = ('user', 'topic')
+
 
 class ForumReadTracker(models.Model):
     """
     Save per user forum read tracking
     """
-    class Meta(object):
-        verbose_name = _('Forum read tracker')
-        verbose_name_plural = _('Forum read trackers')
-
     user = models.ForeignKey(User, blank=False, null=False)
     forum = models.ForeignKey(Forum, blank=True, null=True)
     time_stamp = models.DateTimeField(auto_now=True)
+
+    class Meta(object):
+        verbose_name = _('Forum read tracker')
+        verbose_name_plural = _('Forum read trackers')
+        unique_together = ('user', 'forum')
+
+
+class PollAnswer(models.Model):
+    topic = models.ForeignKey(Topic, related_name='poll_answers', verbose_name=_('Topic'))
+    text = models.CharField(max_length=255, verbose_name=_('Text'))
+
+    class Meta:
+        verbose_name = _('Poll answer')
+        verbose_name_plural = _('Polls answers')
+
+    def __unicode__(self):
+        return self.text
+
+    def votes(self):
+        return self.users.count()
+
+    def votes_percent(self):
+        topic_votes = self.topic.poll_votes()
+        if topic_votes > 0:
+            return 1.0 * self.votes() / topic_votes * 100
+
+
+class PollAnswerUser(models.Model):
+    poll_answer = models.ForeignKey(PollAnswer, related_name='users', verbose_name=_('Poll answer'))
+    user = models.ForeignKey(User, related_name='poll_answers', verbose_name=_('User'))
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _('Poll answer user')
+        verbose_name_plural = _('Polls answers users')
+        unique_together = (('poll_answer', 'user', ), )
+
+    def __unicode__(self):
+        return u'%s - %s' % (self.poll_answer.topic, self.user)
+
 
 from pybb import signals
 
