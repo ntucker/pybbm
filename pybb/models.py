@@ -282,8 +282,8 @@ class Post(RenderableItem):
         if self.topic.head == self and self.on_moderation == False and self.topic.on_moderation == True:
             self.topic.on_moderation = False
         if update_counters:
-        self.topic.update_counters()
-        self.topic.forum.update_counters()
+            self.topic.update_counters()
+            self.topic.forum.update_counters()
 
     def get_absolute_url(self):
         return reverse('pybb:post', kwargs={'pk': self.id})

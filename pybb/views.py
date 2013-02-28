@@ -191,7 +191,7 @@ class TopicView(RedirectToLoginMixin, generic.ListView):
         if (forum_mark is None) or (forum_mark.time_stamp < topic.updated):
             # Mark topic as readed
             try:
-            topic_mark, new = TopicReadTracker.objects.get_or_create(topic=topic, user=request.user)
+                topic_mark, new = TopicReadTracker.objects.get_or_create(topic=topic, user=request.user)
             except IntegrityError: # duplicate mark
                 topic_mark = TopicReadTracker.objects.get(topic=topic, user=request.user)
                 new = False
@@ -208,7 +208,7 @@ class TopicView(RedirectToLoginMixin, generic.ListView):
                         topic__forum=topic.forum
                         ).delete()
                 try:
-                forum_mark, new = ForumReadTracker.objects.get_or_create(forum=topic.forum, user=request.user)
+                    forum_mark, new = ForumReadTracker.objects.get_or_create(forum=topic.forum, user=request.user)
                 except IntegrityError: # duplicate mark
                     forum_mark = ForumReadTracker.objects.get(forum=topic.forum, user=request.user)
                 forum_mark.save()
@@ -323,7 +323,7 @@ class AddPostView(PostEditMixin, generic.CreateView):
         elif 'topic_id' in kwargs:
             self.topic = get_object_or_404(perms.filter_topics(request.user, Topic.objects.all()), pk=kwargs['topic_id'])
             if not perms.may_create_post(self.user, self.topic):
-            raise PermissionDenied
+                raise PermissionDenied
         return super(AddPostView, self).dispatch(request, *args, **kwargs)
 
 class EditPostView(PostEditMixin, generic.UpdateView):
@@ -431,7 +431,7 @@ class DeletePostView(generic.DeleteView):
             return self.forum.get_absolute_url()
         else:
             if not self.request.is_ajax():
-            return self.topic.get_absolute_url()
+                return self.topic.get_absolute_url()
             else:
                 return ""
 
@@ -537,7 +537,7 @@ def post_ajax_preview(request):
 def mark_all_as_read(request):
     for forum in perms.filter_forums(request.user, Forum.objects.all()):
         try:
-        forum_mark, new = ForumReadTracker.objects.get_or_create(forum=forum, user=request.user)
+            forum_mark, new = ForumReadTracker.objects.get_or_create(forum=forum, user=request.user)
         except IntegrityError: # duplicate mark
             forum_mark = ForumReadTracker.objects.get(forum=forum, user=request.user)
         forum_mark.save()
